@@ -2,9 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="true"
-        android:label="Cue"
-        android:theme="@style/Theme.Cue">
+		android:allowBackup="true"
+		android:icon="@mipmap/ic_launcher"
+		android:roundIcon="@mipmap/ic_launcher_round"
+		android:label="Cue"
+		android:theme="@style/Theme.Cue">
 
         <activity
             android:name=".MainActivity"
