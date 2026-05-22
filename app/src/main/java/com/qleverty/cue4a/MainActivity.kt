@@ -193,6 +193,7 @@ fun CueApp() {
                     Modifier
                         .size(38.dp)
                         .clip(CircleShape)
+                        .border(1.dp, Border, CircleShape)
                         .background(SurfaceC)
                         .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {},
                     contentAlignment = Alignment.Center
