@@ -2,110 +2,96 @@ package com.qleverty.cue4a
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
-import androidx.compose.foundation.border
-import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.lifecycle.ViewModelProvider
+import kotlinx.coroutines.delay
 
-// ── Colors ──────────────────────────────────────────────────────────────────
-private val BG       = Color(0xFF09090B)
-private val Surface  = Color(0xFF09090B)  // rgba(255,255,255,.04) on BG
-private val Border   = Color(0x12FFFFFF)  // rgba(255,255,255,.07)
-private val Sep      = Color(0x0FFFFFFF)  // rgba(255,255,255,.06)
-private val TextCol  = Color(0xFFE8E8EA)
-private val Muted    = Color(0x61FFFFFF)  // rgba(255,255,255,.38)
-private val SurfaceC = Color(0x0AFFFFFF)  // .04 alpha
+private val BG      = Color(0xFF09090B)
+private val Border  = Color(0x12FFFFFF)
+private val Sep     = Color(0x0FFFFFFF)
+private val TextCol = Color(0xFFE8E8EA)
+private val Muted   = Color(0x61FFFFFF)
+private val Surface = Color(0x0AFFFFFF)
 
-data class Project(val name: String, val color: Color)
-
-private val projects = listOf(
-    Project("Cue",      Color(0xFF4A90D9)),
-    Project("Работа",   Color(0xFF22C55E)),
-    Project("Личное",   Color(0xFFF97316)),
-    Project("Здоровье", Color(0xFF14B8A6)),
-)
-
-// Blend for "done" button matching JS logic (35% project hue + 65% green hue)
 private fun doneColors(c: Color): Triple<Color, Color, Color> {
-    // simplified: just tint toward green
-    val bg     = Color(0xFF1A2B1E).copy(alpha = 1f)
-    val border = Color(0xFF3A6B44).copy(alpha = 0.5f)
-    val text   = Color(0xFF8DB89A)
-    // We blend the actual color subtly
-    val blended = Color(
-        red   = c.red   * 0.35f + 0.13f * 0.65f,
-        green = c.green * 0.35f + 0.76f * 0.65f,
-        blue  = c.blue  * 0.35f + 0.27f * 0.65f,
+    val b  = Color(c.red * 0.35f + 0.13f * 0.65f, c.green * 0.35f + 0.76f * 0.65f, c.blue * 0.35f + 0.27f * 0.65f)
+    val bg = Color(b.red * 0.22f, b.green * 0.22f, b.blue * 0.22f)
+    return Triple(
+        bg,
+        Color(b.red * 0.76f, b.green * 0.76f, b.blue * 0.76f, 0.5f),
+        Color(b.red * 0.72f + 0.1f, b.green * 0.72f + 0.1f, b.blue * 0.72f + 0.1f),
     )
-    val bgFinal     = blended.copy(alpha = 1f).let {
-        Color(it.red * 0.22f + 0f, it.green * 0.22f + 0f, it.blue * 0.22f + 0f)
-    }
-    val borderFinal = blended.copy(alpha = 0.5f).let {
-        Color(it.red * 0.38f * 2f, it.green * 0.38f * 2f, it.blue * 0.38f * 2f, 0.5f)
-    }
-    val textFinal = Color(
-        red   = blended.red   * 0.72f + 0.1f,
-        green = blended.green * 0.72f + 0.1f,
-        blue  = blended.blue  * 0.72f + 0.1f,
-    )
-    return Triple(bgFinal, borderFinal, textFinal)
 }
 
-// ── Entry ────────────────────────────────────────────────────────────────────
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { CueApp() }
+        val vm = ViewModelProvider(this)[CueViewModel::class.java]
+        setContent { CueApp(vm) }
     }
 }
 
 @Composable
-fun CueApp() {
-    var activeProject by remember { mutableStateOf(0) }
-    var ddOpen by remember { mutableStateOf(false) }
+fun CueApp(vm: CueViewModel) {
+    val proj = vm.activeProject
+    var showSettingsNotice by remember { mutableStateOf(false) }
 
-    val proj = projects[activeProject]
-    val glow = proj.color.copy(alpha = 0.09f)
-    val (doneBg, doneBorder, doneText) = remember(activeProject) { doneColors(proj.color) }
+    BackHandler(enabled = vm.ddOpen) { vm.closeDropdown() }
 
     Box(
         Modifier
             .fillMaxSize()
             .background(BG)
-            // close dropdown on outside tap
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }
-            ) { if (ddOpen) ddOpen = false }
+            .noRippleClick { if (vm.ddOpen) vm.closeDropdown() }
     ) {
         Column(
             Modifier
@@ -113,7 +99,6 @@ fun CueApp() {
                 .statusBarsPadding()
                 .padding(bottom = 24.dp)
         ) {
-            // ── Header ─────────────────────────────────────────────────────
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -121,226 +106,225 @@ fun CueApp() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Project picker button + dropdown
                 Box {
-                    Row(
-                        Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(
-                                indication = null,
-                                interactionSource = remember { MutableInteractionSource() }
-                            ) {
-                                ddOpen = !ddOpen
-                            }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Ring
-                        Box(
-                            Modifier
-                                .size(28.dp)
-                                .border(2.dp, Color(0xD9FFFFFF), CircleShape)
-                                .clip(CircleShape),
-                            contentAlignment = Alignment.Center
+                    ProjectPickerButton(vm)
+                    if (vm.ddOpen) {
+                        Popup(
+                            alignment  = Alignment.TopStart,
+                            properties = PopupProperties(focusable = vm.projectAdding)
                         ) {
-                            Box(
-                                Modifier
-                                    .size(14.dp)
-                                    .clip(CircleShape)
-                                    .background(proj.color)
-                            )
+                            Box(Modifier.noRippleClick { vm.closeDropdown() }) {
+                                ProjectDropdown(
+                                    vm       = vm,
+                                    modifier = Modifier
+                                        .padding(start = 8.dp, top = 48.dp)
+                                        .zIndex(100f)
+                                        .noRippleClick {}
+                                )
+                            }
                         }
-                        Text(
-                            text = proj.name,
-                            color = TextCol,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = 0.15.sp
-                        )
-                        // Caret
-                        val caretAngle by animateFloatAsState(
-                            if (ddOpen) 180f else 0f,
-                            animationSpec = tween(200), label = "caret"
-                        )
-                        CaretIcon(
-                            Modifier.graphicsLayer { rotationZ = caretAngle },
-                            tint = Muted
-                        )
-                    }
-
-                    // Dropdown
-                    if (ddOpen) {
-                        Dropdown(
-                            active = activeProject,
-                            onSelect = { i ->
-                                activeProject = i
-                                ddOpen = false
-                            },
-                            modifier = Modifier
-                                .padding(top = 46.dp)
-                                .zIndex(10f)
-                                .clickable(
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() }
-                                ) { /* consume */ }
-                        )
                     }
                 }
 
-                // Settings
                 Box(
                     Modifier
                         .size(38.dp)
                         .clip(CircleShape)
                         .border(1.dp, Border, CircleShape)
-                        .background(SurfaceC)
-                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {},
+                        .background(Surface)
+                        .noRippleClick { showSettingsNotice = true },
                     contentAlignment = Alignment.Center
                 ) {
                     SettingsIcon(tint = Color.White.copy(alpha = 0.55f))
                 }
             }
 
-            // ── Main area ──────────────────────────────────────────────────
             Column(
                 Modifier
                     .fillMaxSize()
                     .padding(start = 16.dp, end = 16.dp, top = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Main task card
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .border(1.dp, Border, RoundedCornerShape(20.dp))
-                        .background(SurfaceC)
-                        .drawBehind {
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(glow, Color.Transparent),
-                                    center = Offset(size.width * 0.3f, 0f),
-                                    radius = size.width * 0.7f
-                                ),
-                                radius = size.width * 0.7f,
-                                center = Offset(size.width * 0.3f, 0f)
-                            )
-                        }
-                        .padding(20.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            "ГЛАВНАЯ ЗАДАЧА",
-                            color = Muted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.2.sp
-                        )
-                        Text(
-                            "Дочитать «Мастер и Маргарита» до конца недели",
-                            color = TextCol,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium,
-                            lineHeight = 25.sp
-                        )
-                        // Done button
-                        Row(
-                            Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .border(1.dp, doneBorder, RoundedCornerShape(10.dp))
-                                .background(doneBg)
-                                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {}
-                                .padding(horizontal = 14.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CheckIcon(tint = doneText.copy(alpha = 0.7f))
-                            Text("Выполнено", color = doneText, fontSize = 13.sp)
-                        }
-                    }
-                }
-
-                // Subtasks card
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .border(1.dp, Border, RoundedCornerShape(18.dp))
-                        .background(SurfaceC)
-                ) {
-                    Text(
-                        "ДАЛЕЕ",
-                        color = Muted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp)
+                if (proj != null) {
+                    MainTaskCard(proj, vm)
+                    SubtasksCard(proj, vm)
+                } else {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Surface)
                     )
-
-                    val subs = listOf(
-                        "Купить молоко и хлеб",
-                        "Записаться к стоматологу на осмотр",
-                        "Позвонить маме",
-                        "Оплатить интернет"
-                    )
-
-                    subs.forEachIndexed { i, text ->
-                        SubItem(text)
-                        if (i < subs.lastIndex) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp)
-                                    .height(1.dp)
-                                    .background(Sep)
-                            )
-                        }
-                    }
                 }
+            }
+        }
+    }
 
-                // Add button
+    vm.showDeleteConfirm?.let { idx ->
+        DeleteConfirmDialog(
+            name      = vm.projects.getOrNull(idx)?.name ?: "",
+            onConfirm = { vm.confirmDeleteProject() },
+            onDismiss = { vm.cancelDeleteProject() },
+        )
+    }
+
+    if (showSettingsNotice) {
+        SettingsNoticeDialog(onDismiss = { showSettingsNotice = false })
+    }
+}
+
+@Composable
+private fun ProjectPickerButton(vm: CueViewModel) {
+    val proj = vm.activeProject
+    val caretAngle by animateFloatAsState(
+        targetValue   = if (vm.ddOpen) 180f else 0f,
+        animationSpec = tween(200),
+        label         = "caret"
+    )
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .noRippleClick { if (vm.ddOpen) vm.closeDropdown() else vm.ddOpen = true }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        ProjectLogo(color = proj?.color ?: Color(0xFF4A90D9))
+        Text(proj?.name ?: "", color = TextCol, fontSize = 15.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.15.sp)
+        CaretIcon(modifier = Modifier.graphicsLayer { rotationZ = caretAngle }, tint = Muted)
+    }
+}
+
+@Composable
+private fun MainTaskCard(proj: Project, vm: CueViewModel) {
+    val glow = proj.color.copy(alpha = 0.09f)
+    val (doneBg, doneBorder, doneText) = remember(proj.color) { doneColors(proj.color) }
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .border(1.dp, Border, RoundedCornerShape(20.dp))
+            .background(Surface)
+            .drawBehind {
+                drawCircle(
+                    brush  = Brush.radialGradient(listOf(glow, Color.Transparent), Offset(size.width * 0.3f, 0f), size.width * 0.7f),
+                    radius = size.width * 0.7f,
+                    center = Offset(size.width * 0.3f, 0f),
+                )
+            }
+            .padding(20.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("ГЛАВНАЯ ЗАДАЧА", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+            if (proj.main.isNotEmpty()) {
+                Text(proj.mainText() ?: "", color = TextCol, fontSize = 18.sp, fontWeight = FontWeight.Medium, lineHeight = 25.sp)
                 Row(
                     Modifier
-                        .padding(top = 2.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {}
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .border(1.dp, doneBorder, RoundedCornerShape(10.dp))
+                        .background(doneBg)
+                        .noRippleClick { vm.completeMain() }
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    PlusIcon(tint = Muted)
-                    Text("Добавить задачу", color = Muted, fontSize = 14.sp)
+                    CheckIcon(tint = doneText.copy(alpha = 0.7f))
+                    Text("Выполнено", color = doneText, fontSize = 13.sp)
                 }
+            } else {
+                Text("Нет активных задач", color = Muted, fontSize = 15.sp)
             }
         }
     }
 }
 
 @Composable
-fun SubItem(text: String) {
+private fun SubtasksCard(proj: Project, vm: CueViewModel) {
+    val sorted = remember(proj.subs) { proj.subsSorted() }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, Border, RoundedCornerShape(18.dp))
+            .background(Surface)
+    ) {
+        Text(
+            "ПРОЧИЕ",
+            color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 10.dp)
+        )
+        if (sorted.isNotEmpty()) {
+            LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                items(sorted, key = { it.id }) { task ->
+                    SubItem(
+                        text      = task.text,
+                        onPromote = { vm.promoteSub(task.id) },
+                        onDelete  = { vm.deleteSub(task.id) },
+                    )
+                    if (task.id != sorted.last().id) {
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(Sep))
+                    }
+                }
+            }
+        }
+        AddTaskRow(vm)
+    }
+}
+
+@Composable
+private fun AddTaskRow(vm: CueViewModel) {
+    val focusRequester = remember { FocusRequester() }
+    if (vm.addingTask) {
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+        BasicTextField(
+            value           = vm.taskInput,
+            onValueChange   = { vm.taskInput = it },
+            modifier        = Modifier.fillMaxWidth().focusRequester(focusRequester).padding(horizontal = 14.dp, vertical = 10.dp),
+            textStyle       = TextStyle(color = TextCol, fontSize = 14.sp),
+            cursorBrush     = SolidColor(TextCol),
+            singleLine      = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { vm.commitTaskInput() }),
+            decorationBox   = { inner ->
+                Box {
+                    if (vm.taskInput.isEmpty()) Text("Новое задание...", color = Muted, fontSize = 14.sp)
+                    inner()
+                }
+            }
+        )
+    } else {
+        Row(
+            Modifier
+                .padding(top = 2.dp, bottom = 2.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .noRippleClick { vm.addingTask = true }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            PlusIcon(tint = Muted)
+            Text("Добавить задачу", color = Muted, fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+fun SubItem(text: String, onPromote: () -> Unit, onDelete: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {}
+            .noRippleClick { onPromote() }
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(Color(0x33FFFFFF)))
-        Text(
-            text,
-            color = Color(0xB3FFFFFF),
-            fontSize = 14.sp,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-        )
+        Text(text, color = Color(0xB3FFFFFF), fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box(
-            Modifier
-                .size(28.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {},
+            Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).noRippleClick { onDelete() },
             contentAlignment = Alignment.Center
         ) {
             XIcon(tint = Color(0x73FFFFFF))
@@ -349,146 +333,228 @@ fun SubItem(text: String) {
 }
 
 @Composable
-fun Dropdown(active: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun ProjectDropdown(vm: CueViewModel, modifier: Modifier = Modifier) {
+    val focusRequester = remember { FocusRequester() }
     Column(
         modifier
-            .width(220.dp)
+            .width(240.dp)
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, Border, RoundedCornerShape(16.dp))
             .background(Color(0xFF141416))
     ) {
-        projects.forEachIndexed { i, p ->
+        val listHeight = 48.dp * minOf(vm.projects.size, 6)
+        LazyColumn(modifier = Modifier.height(listHeight)) {
+            items(vm.projects, key = { it.id }) { p ->
+                val idx = vm.projects.indexOf(p)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .noRippleClick { vm.switchToProject(idx); vm.closeDropdown() }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(Modifier.size(12.dp).clip(CircleShape).background(p.color))
+                    Text(p.name, color = TextCol, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (idx == vm.activeProjectIdx) CheckIcon(tint = p.color.copy(alpha = 0.6f))
+                    if (vm.projects.size > 1) {
+                        Spacer(Modifier.width(4.dp))
+                        Box(
+                            Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).noRippleClick { vm.requestDeleteProject(idx) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            XIcon(tint = Color(0x73FFFFFF))
+                        }
+                    }
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().padding(vertical = 2.dp).height(1.dp).background(Sep))
+        if (vm.projectAdding) {
+            LaunchedEffect(vm.projectAdding) {
+                delay(50)
+                focusRequester.requestFocus()
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(PROJECT_PALETTE[vm.projectColorIdx])
+                        .noRippleClick { vm.cycleProjectColor(); focusRequester.requestFocus() }
+                )
+                BasicTextField(
+                    value           = vm.projectInput,
+                    onValueChange   = { vm.projectInput = it },
+                    modifier        = Modifier.weight(1f).focusRequester(focusRequester),
+                    textStyle       = TextStyle(color = TextCol, fontSize = 14.sp),
+                    cursorBrush     = SolidColor(TextCol),
+                    singleLine      = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { vm.commitProjectInput() }),
+                    decorationBox   = { inner ->
+                        Box {
+                            if (vm.projectInput.isEmpty()) Text("Название...", color = Muted, fontSize = 14.sp)
+                            inner()
+                        }
+                    }
+                )
+                Box(
+                    Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).noRippleClick { vm.cancelProjectAdding() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    XIcon(tint = Muted)
+                }
+            }
+        } else {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onSelect(i) }
+                    .noRippleClick { vm.startProjectAdding() }
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(Modifier.size(12.dp).clip(CircleShape).background(p.color))
-                Text(p.name, color = TextCol, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                if (i == active) CheckIcon(tint = p.color.copy(alpha = 0.6f))
+                PlusIcon(tint = Muted, size = 14)
+                Text("Новый проект", color = Muted, fontSize = 13.sp)
             }
-        }
-
-        Box(Modifier.fillMaxWidth().padding(vertical = 2.dp).height(1.dp).background(Sep))
-
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {}
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            PlusIcon(tint = Muted, size = 14)
-            Text("Новый проект", color = Muted, fontSize = 13.sp)
         }
     }
 }
 
-// ── Inline SVG icons via Canvas/Path ─────────────────────────────────────────
+@Composable
+private fun DeleteConfirmDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF18181B))
+                .border(1.dp, Border, RoundedCornerShape(20.dp))
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Удалить проект", color = TextCol, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("Удалить проект «$name»? Это действие нельзя отменить.", color = Color(0xB3FFFFFF), fontSize = 14.sp, lineHeight = 20.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, Border, RoundedCornerShape(12.dp))
+                        .background(Surface).noRippleClick { onDismiss() }.padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text("Отмена", color = TextCol, fontSize = 14.sp) }
+                Box(
+                    Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, Color(0x55FF4444), RoundedCornerShape(12.dp))
+                        .background(Color(0xFF7F1D1D)).noRippleClick { onConfirm() }.padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text("Удалить", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsNoticeDialog(onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF18181B))
+                .border(1.dp, Border, RoundedCornerShape(20.dp))
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Ого, разраб чмо и ещё не сделал окно настроек, чтоб открывать его по этой кнопке. Подождите ещё немного, пожалуйста. Весь отдел программистов активно трудится над этим.", color = TextCol, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, lineHeight = 24.sp)
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, Border, RoundedCornerShape(12.dp))
+                    .background(Surface).noRippleClick { onDismiss() }.padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) { Text("Хайп", color = TextCol, fontSize = 14.sp) }
+        }
+    }
+}
+
+private fun Modifier.noRippleClick(onClick: () -> Unit) = this.clickable(
+    indication = null,
+    interactionSource = MutableInteractionSource(),
+    onClick = onClick,
+)
+
+@Composable
+private fun ProjectLogo(color: Color) {
+    Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+        Image(
+            painter          = painterResource(R.drawable.cue_center),
+            contentDescription = null,
+            modifier         = Modifier.fillMaxSize(),
+            colorFilter      = ColorFilter.tint(color, BlendMode.SrcIn)
+        )
+        Image(
+            painter          = painterResource(R.drawable.cue_contour),
+            contentDescription = null,
+            modifier         = Modifier.fillMaxSize()
+        )
+    }
+}
+
 @Composable
 fun CaretIcon(modifier: Modifier = Modifier, tint: Color) {
-    androidx.compose.foundation.Canvas(modifier.size(12.dp)) {
-        val s = size
-        val p = androidx.compose.ui.graphics.Path().apply {
-            moveTo(s.width * 0.17f, s.height * 0.33f)
-            lineTo(s.width * 0.5f,  s.height * 0.67f)
-            lineTo(s.width * 0.83f, s.height * 0.33f)
-        }
-        drawPath(p, tint, style = androidx.compose.ui.graphics.drawscope.Stroke(
-            width = 1.5.dp.toPx(),
-            cap = androidx.compose.ui.graphics.StrokeCap.Round,
-            join = androidx.compose.ui.graphics.StrokeJoin.Round
-        ))
+    Canvas(modifier.size(12.dp)) {
+        drawPath(Path().apply {
+            moveTo(size.width * 0.17f, size.height * 0.33f)
+            lineTo(size.width * 0.5f,  size.height * 0.67f)
+            lineTo(size.width * 0.83f, size.height * 0.33f)
+        }, tint, style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
 @Composable
 fun CheckIcon(tint: Color, size: Int = 14) {
-    androidx.compose.foundation.Canvas(Modifier.size(size.dp)) {
+    Canvas(Modifier.size(size.dp)) {
         val s = size.dp.toPx()
-        val p = androidx.compose.ui.graphics.Path().apply {
+        drawPath(Path().apply {
             moveTo(s * 0.11f, s * 0.5f)
             lineTo(s * 0.43f, s * 0.82f)
             lineTo(s * 0.89f, s * 0.18f)
-        }
-        drawPath(p, tint, style = androidx.compose.ui.graphics.drawscope.Stroke(
-            width = 1.6.dp.toPx(),
-            cap = androidx.compose.ui.graphics.StrokeCap.Round,
-            join = androidx.compose.ui.graphics.StrokeJoin.Round
-        ))
+        }, tint, style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
 @Composable
 fun XIcon(tint: Color) {
-    androidx.compose.foundation.Canvas(Modifier.size(10.dp)) {
-        val s = size
-        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
-            width = 1.4.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round
-        )
-        val p1 = androidx.compose.ui.graphics.Path().apply {
-            moveTo(s.width * 0.1f, s.height * 0.1f)
-            lineTo(s.width * 0.9f, s.height * 0.9f)
-        }
-        val p2 = androidx.compose.ui.graphics.Path().apply {
-            moveTo(s.width * 0.9f, s.height * 0.1f)
-            lineTo(s.width * 0.1f, s.height * 0.9f)
-        }
-        drawPath(p1, tint, style = stroke)
-        drawPath(p2, tint, style = stroke)
+    Canvas(Modifier.size(10.dp)) {
+        val stroke = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round)
+        drawPath(Path().apply { moveTo(size.width * 0.1f, size.height * 0.1f); lineTo(size.width * 0.9f, size.height * 0.9f) }, tint, style = stroke)
+        drawPath(Path().apply { moveTo(size.width * 0.9f, size.height * 0.1f); lineTo(size.width * 0.1f, size.height * 0.9f) }, tint, style = stroke)
     }
 }
 
 @Composable
 fun PlusIcon(tint: Color, size: Int = 14) {
-    androidx.compose.foundation.Canvas(Modifier.size(size.dp)) {
-        val s = this.size
-        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
-            width = 1.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round
-        )
-        val v = androidx.compose.ui.graphics.Path().apply {
-            moveTo(s.width / 2f, s.height * 0.07f)
-            lineTo(s.width / 2f, s.height * 0.93f)
-        }
-        val h = androidx.compose.ui.graphics.Path().apply {
-            moveTo(s.width * 0.07f, s.height / 2f)
-            lineTo(s.width * 0.93f, s.height / 2f)
-        }
-        drawPath(v, tint, style = stroke)
-        drawPath(h, tint, style = stroke)
+    Canvas(Modifier.size(size.dp)) {
+        val stroke = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+        drawPath(Path().apply { moveTo(this@Canvas.size.width / 2f, this@Canvas.size.height * 0.07f); lineTo(this@Canvas.size.width / 2f, this@Canvas.size.height * 0.93f) }, tint, style = stroke)
+        drawPath(Path().apply { moveTo(this@Canvas.size.width * 0.07f, this@Canvas.size.height / 2f); lineTo(this@Canvas.size.width * 0.93f, this@Canvas.size.height / 2f) }, tint, style = stroke)
     }
 }
 
 @Composable
 fun SettingsIcon(tint: Color) {
-    androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
-        val s = size
-        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
-            width = 1.4.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round
-        )
-        val cx = s.width / 2f; val cy = s.height / 2f
-        val r1 = s.width * 0.139f  // inner circle
-        val r2 = s.width * 0.278f  // outer dots distance
-
-        // center circle
+    Canvas(Modifier.size(18.dp)) {
+        val stroke  = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round)
+        val cx      = size.width / 2f
+        val cy      = size.height / 2f
+        val r1      = size.width * 0.139f
+        val r2      = size.width * 0.278f + 2.dp.toPx()
         drawCircle(tint, radius = r1, center = Offset(cx, cy), style = stroke)
-
-        // 8 spokes
-        val angles = listOf(0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f)
-        val innerR = r1 + 2.dp.toPx()
-        val outerR = r2 + 2.dp.toPx()
-        angles.forEach { deg ->
+        listOf(0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f).forEach { deg ->
             val rad = Math.toRadians(deg.toDouble()).toFloat()
-            val cos = kotlin.math.cos(rad); val sin = kotlin.math.sin(rad)
-            val p = androidx.compose.ui.graphics.Path().apply {
-                moveTo(cx + cos * innerR, cy + sin * innerR)
-                lineTo(cx + cos * outerR, cy + sin * outerR)
-            }
-            drawPath(p, tint, style = stroke)
+            val cos = kotlin.math.cos(rad)
+            val sin = kotlin.math.sin(rad)
+            val inner = r1 + 2.dp.toPx()
+            drawPath(Path().apply { moveTo(cx + cos * inner, cy + sin * inner); lineTo(cx + cos * r2, cy + sin * r2) }, tint, style = stroke)
         }
     }
 }
